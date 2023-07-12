@@ -318,6 +318,64 @@ let _ = require('lodash'),
   //   return tree;
   // },
 
+  _mapPaths = function (paths, { includeDeprecated }, tree, buildFolderPrefix, buildEmptyFolders) {
+    _.forEach(paths, function (methods, path) {
+      _.forEach(methods, function (data, method) {
+        if (!ALLOWED_HTTP_METHODS[method]) {
+          return;
+        }
+
+        /**
+         * include deprecated handling.
+         * If true, add in the postman collection. If false ignore the request.
+         */
+        if (!includeDeprecated && data.deprecated) {
+          return;
+        }
+
+        /**
+         * For all the tags present. Make that request to be
+         * referenced in all the folder which are applicable.
+         */
+        if (data.tags && data.tags.length > 0) {
+          _.forEach(data.tags, function (tag) {
+            let folderPrefix = buildFolderPrefix(tag);
+            tree.setNode(`${folderPrefix}:${path}:${method}`, {
+              type: 'request',
+              data: {},
+              meta: {
+                tag: tag,
+                path: path,
+                method: method
+              }
+            });
+
+            // safeguard just in case there is no folder created for this tag.
+            if (!tree.hasNode(`${folderPrefix}`)) {
+              buildEmptyFolders(tag, path);
+            }
+
+            tree.setEdge(`${folderPrefix}`, `${folderPrefix}:${path}:${method}`);
+          });
+        }
+
+        else {
+          // @TODO: others folder option feature
+          tree.setNode(`path:${path}:${method}`, {
+            type: 'request',
+            data: {},
+            meta: {
+              path: path,
+              method: method
+            }
+          });
+
+          tree.setEdge('root:collection', `path:${path}:${method}`);
+        }
+      });
+    });
+  },
+
   _generateTreeFromTags = function (openapi, { includeDeprecated }) {
     let tree = new Graph(),
 
@@ -357,68 +415,129 @@ let _ = require('lodash'),
       tree.setEdge('root:collection', `path:${tag}`);
     });
 
-    _.forEach(openapi.paths, function (methods, path) {
-      _.forEach(methods, function (data, method) {
-        if (!ALLOWED_HTTP_METHODS[method]) {
-          return;
-        }
-
-        /**
-         * include deprecated handling.
-         * If true, add in the postman collection. If false ignore the request.
-         */
-        if (!includeDeprecated && data.deprecated) {
-          return;
-        }
-
-        /**
-         * For all the tags present. Make that request to be
-         * referenced in all the folder which are applicable.
-         */
-        if (data.tags && data.tags.length > 0) {
-          _.forEach(data.tags, function (tag) {
-            tree.setNode(`path:${tag}:${path}:${method}`, {
-              type: 'request',
-              data: {},
-              meta: {
-                tag: tag,
-                path: path,
-                method: method
-              }
-            });
-
-            // safeguard just in case there is no folder created for this tag.
-            if (!tree.hasNode(`path:${tag}`)) {
-              tree.setNode(`path:${tag}`, {
-                type: 'folder',
-                meta: {
-                  path: path,
-                  name: tag,
-                  description: tagDescMap[tag]
-                },
-                data: {}
-              });
-
-              tree.setEdge('root:collection', `path:${tag}`);
-            }
-
-            tree.setEdge(`path:${tag}`, `path:${tag}:${path}:${method}`);
-          });
-        }
-
-        else {
-          tree.setNode(`path:${path}:${method}`, {
-            type: 'request',
-            data: {},
-            meta: {
-              path: path,
-              method: method
-            }
-          });
-
-          tree.setEdge('root:collection', `path:${path}:${method}`);
-        }
+    _mapPaths(openapi.paths, { includeDeprecated }, tree, (tag) => {
+      return `path:${tag}`;
+    }, (tag, path) => {
+      tree.setNode(`path:${tag}`, {
+        type: 'folder',
+        meta: {
+          path: path,
+          name: tag,
+          description: tagDescMap[tag]
+        },
+        data: {}
       });
+
+      tree.setEdge('root:collection', `path:${tag}`);
+    });
+
+    return tree;
+  },
+
+  _isTagGroupsDefined = function(spec, tagGroupsKey) {
+    return tagGroupsKey in spec && Boolean(spec[tagGroupsKey]) && spec[tagGroupsKey].length > 0;
+  },
+
+  _getTagGroupByTag = function(xTagGroups, tag) {
+    let requiredTagGroup = xTagGroups.find((xTagGroup) => {
+      return xTagGroup.tags.indexOf(tag) !== -1;
+    });
+
+    if (!requiredTagGroup) {
+      return null;
+    }
+
+    return requiredTagGroup;
+  },
+
+  _generateTreeFromTagGroups = function (openapi, { includeDeprecated }) {
+    if (!_isTagGroupsDefined(openapi, 'x-tag-groups') && !_isTagGroupsDefined(openapi, 'x-tagGroups')) {
+      throw new Error('Extension field x-tag-groups is required in tagGroup folderStrategy');
+    }
+    let tree = new Graph(),
+      tagDescMap = _.reduce(openapi.tags, function (acc, data) {
+        acc[data.name] = data.description;
+
+        return acc;
+      }, {}),
+      xTagGroups = openapi['x-tag-groups'] || openapi['x-tagGroups'] || [];
+
+    tree.setNode('root:collection', {
+      type: 'collection',
+      data: {},
+      meta: {}
+    });
+
+    /**
+     * Create folders for all the tags groups present.
+     */
+    xTagGroups.forEach(function ({ name: tagGroup, description, tags }) {
+      if (tree.hasNode(`path:${tagGroup}`)) {
+        return;
+      }
+
+      /**
+       * Generate a folder node and attach to root of collection.
+       */
+      tree.setNode(`path:${tagGroup}`, {
+        type: 'folder',
+        meta: {
+          path: '',
+          name: tagGroup,
+          description: description
+        },
+        data: {}
+      });
+
+      tree.setEdge('root:collection', `path:${tagGroup}`);
+
+      tags.forEach((tag) => {
+        if (tree.hasNode(`path:${tagGroup}:${tag}`)) {
+          return;
+        }
+
+        tree.setNode(`path:${tagGroup}:${tag}`, {
+          type: 'folder',
+          meta: {
+            path: '',
+            name: tag,
+            description: tagDescMap[tag]
+          },
+          data: {}
+        });
+
+        tree.setEdge(`path:${tagGroup}`, `path:${tagGroup}:${tag}`);
+      });
+    });
+
+    _mapPaths(openapi.paths, { includeDeprecated }, tree, (tag) => {
+      let tagGroupName = _getTagGroupByTag(xTagGroups, tag).name;
+      return `path:${tagGroupName}:${tag}`;
+    }, (tag) => {
+      let tagGroup = _getTagGroupByTag(xTagGroups, tag);
+      tree.setNode(`path:${tagGroup.name}`, {
+        type: 'folder',
+        meta: {
+          path: '',
+          name: tagGroup.name,
+          description: tagGroup.description
+        },
+        data: {}
+      });
+
+      tree.setEdge('root:collection', `path:${tagGroup.name}`);
+
+      tree.setNode(`path:${tagGroup.name}:${tag}`, {
+        type: 'folder',
+        meta: {
+          path: '',
+          name: tag,
+          description: tagDescMap[tag]
+        },
+        data: {}
+      });
+
+      tree.setEdge('root:collection', `path:${tagGroup.name}:${tag}`);
     });
 
     return tree;
@@ -480,6 +599,10 @@ module.exports = function (openapi, { folderStrategy, includeWebhooks, includeDe
 
     case 'paths':
       skeletonTree = _generateTreeFromPathsV2(openapi, { includeDeprecated });
+      break;
+
+    case 'taggroups':
+      skeletonTree = _generateTreeFromTagGroups(openapi, { includeDeprecated });
       break;
 
     default:
