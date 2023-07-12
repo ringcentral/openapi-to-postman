@@ -318,7 +318,7 @@ let _ = require('lodash'),
   //   return tree;
   // },
 
-  _mapPaths = function (paths, { includeDeprecated }, tree, buildFolderPrefix, buildEmptyFolders) {
+  _mapPaths = function (paths, { includeDeprecated, othersFolder }, tree, buildFolderPrefix, buildEmptyFolders) {
     _.forEach(paths, function (methods, path) {
       _.forEach(methods, function (data, method) {
         if (!ALLOWED_HTTP_METHODS[method]) {
@@ -360,8 +360,28 @@ let _ = require('lodash'),
         }
 
         else {
-          // @TODO: others folder option feature
-          tree.setNode(`path:${path}:${method}`, {
+          let otherPathPrefix, otherPathRoot;
+          if (othersFolder) {
+            otherPathPrefix = otherPathRoot = `path:${othersFolder}`;
+            if (!tree.hasNode(otherPathPrefix)) {
+              tree.setNode(otherPathPrefix, {
+                type: 'folder',
+                meta: {
+                  path: '',
+                  name: othersFolder
+                },
+                data: {}
+              });
+            }
+            tree.setEdge('root:collection', otherPathPrefix);
+          }
+
+          else {
+            otherPathPrefix = 'path';
+            otherPathRoot = 'root:collection';
+          }
+
+          tree.setNode(`${otherPathPrefix}:${path}:${method}`, {
             type: 'request',
             data: {},
             meta: {
@@ -370,13 +390,13 @@ let _ = require('lodash'),
             }
           });
 
-          tree.setEdge('root:collection', `path:${path}:${method}`);
+          tree.setEdge(otherPathRoot, `${otherPathPrefix}:${path}:${method}`);
         }
       });
     });
   },
 
-  _generateTreeFromTags = function (openapi, { includeDeprecated }) {
+  _generateTreeFromTags = function (openapi, { includeDeprecated, othersFolder }) {
     let tree = new Graph(),
 
       tagDescMap = _.reduce(openapi.tags, function (acc, data) {
@@ -415,7 +435,7 @@ let _ = require('lodash'),
       tree.setEdge('root:collection', `path:${tag}`);
     });
 
-    _mapPaths(openapi.paths, { includeDeprecated }, tree, (tag) => {
+    _mapPaths(openapi.paths, { includeDeprecated, othersFolder }, tree, (tag) => {
       return `path:${tag}`;
     }, (tag, path) => {
       tree.setNode(`path:${tag}`, {
@@ -450,10 +470,11 @@ let _ = require('lodash'),
     return requiredTagGroup;
   },
 
-  _generateTreeFromTagGroups = function (openapi, { includeDeprecated }) {
+  _generateTreeFromTagGroups = function (openapi, { includeDeprecated, othersFolder }) {
     if (!_isTagGroupsDefined(openapi, 'x-tag-groups') && !_isTagGroupsDefined(openapi, 'x-tagGroups')) {
       throw new Error('Extension field x-tag-groups is required in tagGroup folderStrategy');
     }
+
     let tree = new Graph(),
       tagDescMap = _.reduce(openapi.tags, function (acc, data) {
         acc[data.name] = data.description;
@@ -510,7 +531,7 @@ let _ = require('lodash'),
       });
     });
 
-    _mapPaths(openapi.paths, { includeDeprecated }, tree, (tag) => {
+    _mapPaths(openapi.paths, { includeDeprecated, othersFolder }, tree, (tag) => {
       let tagGroupName = _getTagGroupByTag(xTagGroups, tag).name;
       return `path:${tagGroupName}:${tag}`;
     }, (tag) => {
@@ -589,12 +610,12 @@ let _ = require('lodash'),
  *
  * @returns {Object} - tree format
  */
-module.exports = function (openapi, { folderStrategy, includeWebhooks, includeDeprecated }) {
+module.exports = function (openapi, { folderStrategy, includeWebhooks, includeDeprecated, othersFolder }) {
   let skeletonTree;
 
   switch (folderStrategy) {
     case 'tags':
-      skeletonTree = _generateTreeFromTags(openapi, { includeDeprecated });
+      skeletonTree = _generateTreeFromTags(openapi, { includeDeprecated, othersFolder });
       break;
 
     case 'paths':
@@ -602,7 +623,7 @@ module.exports = function (openapi, { folderStrategy, includeWebhooks, includeDe
       break;
 
     case 'taggroups':
-      skeletonTree = _generateTreeFromTagGroups(openapi, { includeDeprecated });
+      skeletonTree = _generateTreeFromTagGroups(openapi, { includeDeprecated, othersFolder });
       break;
 
     default:
