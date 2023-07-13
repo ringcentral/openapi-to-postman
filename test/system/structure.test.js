@@ -30,7 +30,9 @@ const optionIds = [
     'includeDeprecated',
     'parametersResolution',
     'disabledParametersValidation',
-    'alwaysInheritAuthentication'
+    'alwaysInheritAuthentication',
+    'othersFolder',
+    'includeWebhooks'
   ],
   expectedOptions = {
     collapseFolders: {
