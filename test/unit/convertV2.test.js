@@ -293,7 +293,7 @@ describe('The convert v2 Function', function() {
   });
 
   // Need to handle collaping of folders
-  it.skip('Should generate collection with collapsing unnecessary folders ' +
+  it('Should generate collection with collapsing unnecessary folders ' +
   multipleFoldersSpec, function(done) {
     var openapi = fs.readFileSync(multipleFoldersSpec, 'utf8');
     Converter.convertV2({ type: 'string', data: openapi }, {}, (err, conversionResult) => {
@@ -305,7 +305,7 @@ describe('The convert v2 Function', function() {
       done();
     });
   });
-  it.skip('Should collapse child and parent folder when parent has only one child' +
+  it('Should collapse child and parent folder when parent has only one child' +
   multipleFoldersSpec1, function(done) {
     var openapi = fs.readFileSync(multipleFoldersSpec1, 'utf8');
     Converter.convertV2({ type: 'string', data: openapi }, { schemaFaker: true }, (err, conversionResult) => {
@@ -319,7 +319,7 @@ describe('The convert v2 Function', function() {
       done();
     });
   });
-  it.skip('Should generate collection without creating folders and having only one request' +
+  it('Should generate collection without creating folders and having only one request' +
   multipleFoldersSpec2, function(done) {
     var openapi = fs.readFileSync(multipleFoldersSpec2, 'utf8');
     Converter.convertV2({ type: 'string', data: openapi }, { schemaFaker: true }, (err, conversionResult) => {
