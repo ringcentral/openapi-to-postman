@@ -318,7 +318,7 @@ let _ = require('lodash'),
   //   return tree;
   // },
 
-  _mapPaths = function (paths, { includeDeprecated, othersFolder }, tree, buildFolderPrefix, buildEmptyFolders) {
+  _mapPaths = function (paths, { includeDeprecated, othersFolder }, tree, buildFolderPrefix, buildEmptyFolders, othersNode) {
     _.forEach(paths, function (methods, path) {
       _.forEach(methods, function (data, method) {
         if (!ALLOWED_HTTP_METHODS[method]) {
@@ -340,6 +340,12 @@ let _ = require('lodash'),
         if (data.tags && data.tags.length > 0) {
           _.forEach(data.tags, function (tag) {
             let folderPrefix = buildFolderPrefix(tag);
+            if (!folderPrefix) {
+              // in case if tagGroup is not present for current tag
+              _processUnknownTagGroup(othersNode, tag, path, method);
+              return;
+            }
+
             tree.setNode(`${folderPrefix}:${path}:${method}`, {
               type: 'request',
               data: {},
@@ -360,28 +366,16 @@ let _ = require('lodash'),
         }
 
         else {
-          let otherPathPrefix, otherPathRoot;
           if (othersFolder) {
-            otherPathPrefix = otherPathRoot = `path:${othersFolder}`;
-            if (!tree.hasNode(otherPathPrefix)) {
-              tree.setNode(otherPathPrefix, {
-                type: 'folder',
-                meta: {
-                  path: '',
-                  name: othersFolder
-                },
-                data: {}
-              });
-            }
-            tree.setEdge('root:collection', otherPathPrefix);
+            /**
+             * Move untagged endpoints to separate folder
+             * if option with folder name exists
+             */
+            _addToOthers(tree, path, method, othersFolder);
+            return;
           }
 
-          else {
-            otherPathPrefix = 'path';
-            otherPathRoot = 'root:collection';
-          }
-
-          tree.setNode(`${otherPathPrefix}:${path}:${method}`, {
+          tree.setNode(`path:${path}:${method}`, {
             type: 'request',
             data: {},
             meta: {
@@ -390,10 +384,27 @@ let _ = require('lodash'),
             }
           });
 
-          tree.setEdge(otherPathRoot, `${otherPathPrefix}:${path}:${method}`);
+          tree.setEdge('root:collection', `path:${path}:${method}`);
         }
       });
     });
+  },
+
+  _addToOthers = function (othersNode, path, method) {
+    let pathMethod = `${path}:${method}`;
+    if (!othersNode.paths[pathMethod]) {
+      othersNode.paths[pathMethod] = {};
+    }
+
+    othersNode.paths[pathMethod] = {
+      type: 'request',
+      data: {},
+      meta: {
+        tag: tag,
+        path: path,
+        method: method
+      }
+    };
   },
 
   _generateTreeFromTags = function (openapi, { includeDeprecated, othersFolder }) {
@@ -435,6 +446,14 @@ let _ = require('lodash'),
       tree.setEdge('root:collection', `path:${tag}`);
     });
 
+    /**
+     * Init object to collect data for last node with untagged api endpoints
+     * Use this objects if othersFolder is defined
+     */
+    let othersNode = {
+      paths: {}
+    };
+
     _mapPaths(openapi.paths, { includeDeprecated, othersFolder }, tree, (tag) => {
       return `path:${tag}`;
     }, (tag, path) => {
@@ -449,7 +468,9 @@ let _ = require('lodash'),
       });
 
       tree.setEdge('root:collection', `path:${tag}`);
-    });
+    }, othersNode);
+
+    _processOthersNode(tree, othersNode, othersFolder);
 
     return tree;
   },
@@ -531,8 +552,22 @@ let _ = require('lodash'),
       });
     });
 
+    /**
+     * Init object to collect data for last node with unknown tag groups and untagged api endpoints
+     * Use this objects if othersFolder is defined
+     */
+    let othersNode = {
+      folders: {},
+      paths: {}
+    };
+
     _mapPaths(openapi.paths, { includeDeprecated, othersFolder }, tree, (tag) => {
-      let tagGroupName = _getTagGroupByTag(xTagGroups, tag).name;
+      let existingTagGroup = _getTagGroupByTag(xTagGroups, tag);
+      if (!existingTagGroup) {
+        console.warn("x-tagGroup is not exist for tag=" + tag);
+        return null;
+      }
+      let tagGroupName = existingTagGroup.name;
       return `path:${tagGroupName}:${tag}`;
     }, (tag) => {
       let tagGroup = _getTagGroupByTag(xTagGroups, tag);
@@ -559,9 +594,76 @@ let _ = require('lodash'),
       });
 
       tree.setEdge('root:collection', `path:${tagGroup.name}:${tag}`);
-    });
+    }, othersNode);
+
+    _processOthersNode(tree, othersNode, othersFolder);
 
     return tree;
+  },
+
+  _processUnknownTagGroup = function (othersNode, tag, path, method) {
+    let pathMethod = `${path}:${method}`;
+    if (!othersNode.folders[tag]) {
+      othersNode.folders[tag] = {
+        node: {},
+        paths: {}
+      };
+    }
+    othersNode.folders[tag].node = {
+      type: 'folder',
+      meta: {
+        path: '',
+        name: tag
+      },
+      data: {}
+    };
+    othersNode.folders[tag].paths[pathMethod] = {
+      type: 'request',
+      data: {},
+      meta: {
+        tag: tag,
+        path: path,
+        method: method
+      }
+    };
+  },
+
+  _processOthersNode = function (tree, othersNode, othersFolder) {
+    let prefix = '';
+    let rootFolder = 'root:collection';
+
+    if (othersFolder) {
+      if (!((othersNode.folders && Object.keys(othersNode.folders).length) || (othersNode.paths && Object.keys(othersNode.paths).length))) {
+        // do nothing if there isn't data for others folder
+        return;
+      }
+      rootFolder = `path:${othersFolder}`;
+      prefix = `${rootFolder}:`;
+      tree.setNode(rootFolder, {
+        type: 'folder',
+        meta: {
+          path: '',
+          name: othersFolder
+        },
+        data: {}
+      });
+      tree.setEdge('root:collection', rootFolder);
+    }
+
+    _.forEach(othersNode.folders, (val, folderKey) => {
+      tree.setNode(prefix + folderKey, val.node);
+      tree.setEdge(rootFolder, prefix + folderKey);
+
+      _.forEach(val.paths, (pathNode, pathKey) => {
+        tree.setNode(prefix + folderKey + ':' + pathKey, pathNode);
+        tree.setEdge(prefix + folderKey, prefix + folderKey + ':' + pathKey);
+      });
+    });
+
+    _.forEach(othersNode.paths, ((pathVal, pathKey) => {
+      tree.setNode(prefix + pathKey, pathVal);
+      tree.setEdge(rootFolder, prefix + pathKey);
+    }));
   },
 
   _generateWebhookEndpoints = function (openapi, tree, { includeDeprecated }) {
