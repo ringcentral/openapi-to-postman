@@ -50,6 +50,14 @@ function parseOptions (value) {
   if (_.has(parsedOptions, 'requestParametersResolution') && !_.has(parsedOptions, 'parametersResolution')) {
     parsedOptions.parametersResolution = parsedOptions.requestParametersResolution;
   }
+  
+  /**
+   * Map to string existing status codes in includeResponses
+   */
+  if (_.has(parsedOptions, 'includeResponses')) {
+    parsedOptions.includeResponses = parsedOptions.includeResponses.map(code => code + '');
+  }
+
   return parsedOptions;
 }
 
