@@ -1787,6 +1787,10 @@ let QUERYPARAM = 'query',
       requestAcceptHeader;
 
     _.forOwn(operationItem.responses, (responseObj, code) => {
+      if (context.computedOptions.includeResponses && !context.computedOptions.includeResponses.includes(code)) {
+        return;
+      }
+
       let response,
         responseSchema = _.has(responseObj, '$ref') ? resolveSchema(context, responseObj) : responseObj,
         { includeAuthInfoInExample } = context.computedOptions,
