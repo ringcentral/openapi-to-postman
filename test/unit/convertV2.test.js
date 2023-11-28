@@ -30,7 +30,6 @@ const expect = require('chai').expect,
   examplesOutsideSchema = path.join(__dirname, VALID_OPENAPI_PATH + '/examples_outside_schema.json'),
   exampleOutsideSchema = path.join(__dirname, VALID_OPENAPI_PATH + '/example_outside_schema.json'),
   descriptionInBodyParams = path.join(__dirname, VALID_OPENAPI_PATH + '/description_in_body_params.json'),
-  descriptionInPathParams = path.join(__dirname, VALID_OPENAPI_PATH + '/path_params_with_description.json'),
   zeroDefaultValueSpec = path.join(__dirname, VALID_OPENAPI_PATH + '/zero_in_default_value.json'),
   requiredInParams = path.join(__dirname, VALID_OPENAPI_PATH, '/required_in_parameters.json'),
   multipleRefs = path.join(__dirname, VALID_OPENAPI_PATH, '/multiple_refs.json'),
@@ -54,6 +53,7 @@ const expect = require('chai').expect,
     path.join(__dirname, VALID_OPENAPI_PATH, '/query_param_with_enum_resolve_as_example.json'),
   formDataParamDescription = path.join(__dirname, VALID_OPENAPI_PATH, '/form_data_param_description.yaml'),
   allHTTPMethodsSpec = path.join(__dirname, VALID_OPENAPI_PATH, '/all-http-methods.yaml'),
+  descriptionTestSpec = path.join(__dirname, VALID_OPENAPI_PATH, '/description-test.yaml'),
   invalidNullInfo = path.join(__dirname, INVALID_OPENAPI_PATH, '/invalid-null-info.json'),
   invalidNullInfoTitle = path.join(__dirname, INVALID_OPENAPI_PATH, '/invalid-info-null-title.json'),
   invalidNullInfoVersion = path.join(__dirname, INVALID_OPENAPI_PATH, '/invalid-info-null-version.json'),
@@ -94,7 +94,15 @@ const expect = require('chai').expect,
   recursiveRefComponents =
     path.join(__dirname, VALID_OPENAPI_PATH, '/recursiveRefComponents.yaml'),
   securityAuthUnresolvedInPathItem =
-    path.join(__dirname, VALID_OPENAPI_PATH, '/securityAuthUnresolvedInPathItem.yaml');
+    path.join(__dirname, VALID_OPENAPI_PATH, '/securityAuthUnresolvedInPathItem.yaml'),
+  multiExampleRequest =
+    path.join(__dirname, VALID_OPENAPI_PATH, '/multiExampleRequest.yaml'),
+  multiExampleResponse =
+    path.join(__dirname, VALID_OPENAPI_PATH, '/multiExampleResponse.yaml'),
+  multiExampleRequestResponse =
+    path.join(__dirname, VALID_OPENAPI_PATH, '/multiExampleRequestResponse.yaml'),
+  multiExampleMatchingRequestResponse =
+    path.join(__dirname, VALID_OPENAPI_PATH, '/multiExampleMatchingRequestResponse.yaml');
 
 
 describe('The convert v2 Function', function() {
@@ -549,16 +557,6 @@ describe('The convert v2 Function', function() {
       expect(err).to.be.null;
       expect(descriptionOne.content).to.equal('Description of Pet ID');
       expect(descriptionTwo.content).to.equal('Description of Pet name');
-      done();
-    });
-  });
-
-  it('should add description in path params', function (done) {
-    var openapi = fs.readFileSync(descriptionInPathParams, 'utf-8');
-    Converter.convertV2({ type: 'string', data: openapi }, { schemaFaker: true }, (err, conversionResult) => {
-      let description = conversionResult.output[0].data.item[0].item[0].item[0].request.url.variable[0].description;
-      expect(err).to.be.null;
-      expect(description).to.equal('(Required) Id of pet');
       done();
     });
   });
@@ -1166,6 +1164,38 @@ describe('The convert v2 Function', function() {
           .to.equal('Request param description');
         expect(conversionResult.output[0].data.item[0].item[0].request.body.formdata[0].key).to.equal('requestParam');
         expect(conversionResult.output[0].data.item[0].item[0].request.body.formdata[0].value).to.be.a('string');
+        done();
+      });
+  });
+
+  it('should generate a collection with description for Query Params, Path variables and Headers', function(done) {
+    var openapi = fs.readFileSync(descriptionTestSpec, 'utf8');
+
+    Converter.convertV2({ type: 'string', data: openapi },
+      {}, (err, conversionResult) => {
+        expect(
+          conversionResult.output[0].data.item[0].item[0].item[0].request.url.query[0].description.content
+        ).to.equal('(Required) QUERY PARAM DESCRIPTION');
+
+        expect(
+          conversionResult.output[0].data.item[0].item[0].item[0].request.url.query[1].description.content
+        ).to.equal('QUERY PARAM Optional');
+
+        expect(
+          conversionResult.output[0].data.item[0].item[0].item[0].request.url.variable[0].description.content
+        ).to.equal('(Required) Required spacecraftId path param');
+
+        expect(
+          conversionResult.output[0].data.item[0].item[0].item[0].request.url.variable[1].description.content
+        ).to.equal('Path param optional description');
+
+        expect(
+          conversionResult.output[0].data.item[0].item[0].item[0].request.header[0].description.content
+        ).to.equal('(Required) HEADER PARAM DESCRIPTION');
+
+        expect(
+          conversionResult.output[0].data.item[0].item[0].item[0].request.header[1].description.content
+        ).to.equal('HEADER PARAM Optional');
         done();
       });
   });
@@ -2395,5 +2425,160 @@ describe('The convert v2 Function', function() {
       expect(result.output[0].data).to.have.property('item');
       done();
     });
+  });
+
+  describe('Should generate multiple examples when', function() {
+    it('request body contains multiple examples but request body has single example', function(done) {
+      var openapi = fs.readFileSync(multiExampleRequest, 'utf8');
+      Converter.convertV2({ type: 'string', data: openapi }, { parametersResolution: 'Example' },
+        (err, conversionResult) => {
+          expect(err).to.be.null;
+          expect(conversionResult.result).to.equal(true);
+          expect(conversionResult.output.length).to.equal(1);
+          expect(conversionResult.output[0].type).to.equal('collection');
+          expect(conversionResult.output[0].data).to.have.property('info');
+          expect(conversionResult.output[0].data).to.have.property('item');
+          expect(conversionResult.output[0].data.item[0].item.length).to.equal(1);
+
+          const item = conversionResult.output[0].data.item[0].item[0];
+
+          expect(JSON.parse(item.request.body.raw)).to.eql({
+            user: 1,
+            height: 168,
+            weight: 44
+          });
+          expect(item.response).to.have.lengthOf(2);
+          expect(item.response[0].name).to.eql('valid-request');
+          expect(item.response[0]._postman_previewlanguage).to.eql('json');
+          expect(JSON.parse(item.response[0].body)).to.eql({ hello: 'world' });
+          expect(JSON.parse(item.response[0].originalRequest.body.raw)).to.eql({
+            user: 1,
+            height: 168,
+            weight: 44
+          });
+
+          expect(item.response[1].name).to.eql('missing-required-parameter');
+          expect(item.response[1]._postman_previewlanguage).to.eql('json');
+          expect(JSON.parse(item.response[1].body)).to.eql({ hello: 'world' });
+          expect(JSON.parse(item.response[1].originalRequest.body.raw)).to.eql({
+            user: 1
+          });
+          done();
+        });
+    });
+
+    it('response body contains multiple examples but response body has single example', function(done) {
+      var openapi = fs.readFileSync(multiExampleResponse, 'utf8');
+      Converter.convertV2({ type: 'string', data: openapi }, { parametersResolution: 'Example' },
+        (err, conversionResult) => {
+          expect(err).to.be.null;
+          expect(conversionResult.result).to.equal(true);
+          expect(conversionResult.output.length).to.equal(1);
+          expect(conversionResult.output[0].type).to.equal('collection');
+          expect(conversionResult.output[0].data).to.have.property('info');
+          expect(conversionResult.output[0].data).to.have.property('item');
+          expect(conversionResult.output[0].data.item[0].item.length).to.equal(1);
+
+          const item = conversionResult.output[0].data.item[0].item[0];
+
+          expect(JSON.parse(item.request.body.raw)).to.eql({ hello: 'world' });
+          expect(item.response).to.have.lengthOf(2);
+          expect(item.response[0].name).to.eql('valid-request');
+          expect(item.response[0]._postman_previewlanguage).to.eql('json');
+          expect(JSON.parse(item.response[0].body)).to.eql({
+            user: 1,
+            height: 168,
+            weight: 44
+          });
+          expect(JSON.parse(item.response[0].originalRequest.body.raw)).to.eql({ hello: 'world' });
+
+          expect(item.response[1].name).to.eql('missing-required-parameter');
+          expect(item.response[1]._postman_previewlanguage).to.eql('json');
+          expect(JSON.parse(item.response[1].body)).to.eql({ user: 1 });
+          expect(JSON.parse(item.response[1].originalRequest.body.raw)).to.eql({ hello: 'world' });
+          done();
+        });
+    });
+
+    it('both request and response body contains multiple examples with matching keys', function(done) {
+      var openapi = fs.readFileSync(multiExampleMatchingRequestResponse, 'utf8');
+      Converter.convertV2({ type: 'string', data: openapi }, { parametersResolution: 'Example' },
+        (err, conversionResult) => {
+          expect(err).to.be.null;
+          expect(conversionResult.result).to.equal(true);
+          expect(conversionResult.output.length).to.equal(1);
+          expect(conversionResult.output[0].type).to.equal('collection');
+          expect(conversionResult.output[0].data).to.have.property('info');
+          expect(conversionResult.output[0].data).to.have.property('item');
+          expect(conversionResult.output[0].data.item[0].item.length).to.equal(1);
+
+          const item = conversionResult.output[0].data.item[0].item[0];
+
+          expect(JSON.parse(item.request.body.raw)).to.eql({
+            includedFields: ['user', 'height', 'weight']
+          });
+          expect(item.response).to.have.lengthOf(2);
+          expect(item.response[0].name).to.eql('Complete request');
+          expect(item.response[0]._postman_previewlanguage).to.eql('json');
+          expect(JSON.parse(item.response[0].body)).to.eql({
+            user: 1,
+            height: 168,
+            weight: 44
+          });
+          expect(JSON.parse(item.response[0].originalRequest.body.raw)).to.eql({
+            includedFields: ['user', 'height', 'weight']
+          });
+
+          expect(item.response[1].name).to.eql('Request with only required params');
+          expect(item.response[1]._postman_previewlanguage).to.eql('json');
+          expect(JSON.parse(item.response[1].body)).to.eql({ user: 1 });
+          expect(JSON.parse(item.response[1].originalRequest.body.raw)).to.eql({
+            includedFields: ['user']
+          });
+          done();
+        });
+    });
+
+    it('both request and response body contains multiple examples in mentioned order when no matching keys',
+      function(done) {
+        var openapi = fs.readFileSync(multiExampleRequestResponse, 'utf8');
+        Converter.convertV2({ type: 'string', data: openapi }, { parametersResolution: 'Example' },
+          (err, conversionResult) => {
+            expect(err).to.be.null;
+            expect(conversionResult.result).to.equal(true);
+            expect(conversionResult.output.length).to.equal(1);
+            expect(conversionResult.output[0].type).to.equal('collection');
+            expect(conversionResult.output[0].data).to.have.property('info');
+            expect(conversionResult.output[0].data).to.have.property('item');
+            expect(conversionResult.output[0].data.item[0].item.length).to.equal(1);
+
+            const item = conversionResult.output[0].data.item[0].item[0];
+
+            expect(JSON.parse(item.request.body.raw)).to.eql({
+              includedFields: ['user', 'height', 'weight']
+            });
+            expect(item.response).to.have.lengthOf(2);
+            expect(item.response[0].name).to.eql('Request with only required params');
+            expect(item.response[0]._postman_previewlanguage).to.eql('json');
+            expect(JSON.parse(item.response[0].body)).to.eql({
+              user: 1
+            });
+            expect(JSON.parse(item.response[0].originalRequest.body.raw)).to.eql({
+              includedFields: ['user', 'height', 'weight']
+            });
+
+            expect(item.response[1].name).to.eql('Complete request');
+            expect(item.response[1]._postman_previewlanguage).to.eql('json');
+            expect(JSON.parse(item.response[1].body)).to.eql({
+              user: 1,
+              height: 168,
+              weight: 44
+            });
+            expect(JSON.parse(item.response[1].originalRequest.body.raw)).to.eql({
+              includedFields: ['user']
+            });
+            done();
+          });
+      });
   });
 });
