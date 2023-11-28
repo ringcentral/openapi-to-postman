@@ -2046,7 +2046,12 @@ let QUERYPARAM = 'query',
     }
 
     _.forOwn(operationItem.responses, (responseObj, code) => {
-      let responseSchema = _.has(responseObj, '$ref') ? resolveSchema(context, responseObj) : responseObj,
+      if (context.computedOptions.includeResponses && !context.computedOptions.includeResponses.includes(code)) {
+        return;
+      }
+
+      let response,
+        responseSchema = _.has(responseObj, '$ref') ? resolveSchema(context, responseObj) : responseObj,
         { includeAuthInfoInExample } = context.computedOptions,
         auth = request.auth,
         resolvedExamples = resolveResponseBody(context, responseSchema, requestBodyExamples) || {},
